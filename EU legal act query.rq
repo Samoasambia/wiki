@@ -1,0 +1,69 @@
+PREFIX dc:<http://purl.org/dc/elements/1.1/>
+PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+SELECT DISTINCT ?act, ?type1, ?type2, GROUP_CONCAT(DISTINCT ?agentID; SEPARATOR = "; ") AS ?agent, ?celex, ?eli, ?date_doc, ?date_pub, MIN(?date_force_all) AS ?date_force, ?langID, ?title, ?eea, ?oj, ?ojclass, ?ojnumber, GROUP_CONCAT(DISTINCT ?eurovocID; SEPARATOR = "; ") AS ?eurovoc, ?expr
+WHERE {
+
+   # Type of legal act
+   ?act cdm:resource_legal_type ?type1.
+   ?act cdm:work_has_resource-type ?type2url.
+   BIND(REPLACE(STR(?type2url), "^http://publications.europa.eu/resource/authority/resource-type/", "") AS ?type2)
+
+   # Creator of the act and their ID
+   ?act cdm:work_created_by_agent ?agent.
+   ?agent dc:identifier ?agentID.
+
+   # CELEX number and ELI
+   ?act cdm:resource_legal_id_celex ?celex.
+   OPTIONAL { ?act cdm:resource_legal_eli ?eli. }
+
+   # Whether the act has EEA relevance
+   OPTIONAL { ?act cdm:resource_legal_eea ?eea }
+
+   # Default title. Note: works only after 2023-10-11.
+   # OPTIONAL { ?act cdm:work_title ?title_def. }
+
+   # Different language versions (expr) of the act, their titles and languages
+   ?expr cdm:expression_belongs_to_work ?act ;
+         cdm:expression_uses_language ?lang ;
+         cdm:expression_title ?title.
+   ?lang dc:identifier ?langID.
+
+   # OJ where the act was published and related properties. Note: works until 2023-10-01
+   OPTIONAL { ?act cdm:resource_legal_published_in_official-journal ?oj.
+              ?oj cdm:official-journal_class ?ojclass;
+                  cdm:official-journal_number ?ojnumber;
+                  cdm:publication_general_date_publication ?date_pub_old. }
+
+   # Date of signature, works only partially
+   # OPTIONAL { ?act cdm:resource_legal_date_signature ?date_sign.}
+   
+   # Date of document (promulgation)
+   OPTIONAL { ?act cdm:work_date_document ?date_doc. }
+
+   # Date of publication in the OJ. Note: works only after 2023-10-01.
+   OPTIONAL { ?act cdm:official-journal-act_date_publication ?date_pub_new. }
+
+   # Date of entry into force
+   OPTIONAL { ?act cdm:resource_legal_date_entry-into-force ?date_force_all }
+
+   # Eurovoc thesaurus identifiers
+   OPTIONAL { ?act cdm:work_is_about_concept_eurovoc ?eurovoc_url. 
+   BIND(REPLACE(STR(?eurovoc_url), "^http://eurovoc.europa.eu/", "") AS ?eurovocID) }
+
+# Combining dates of publication into a single column
+BIND(CONCAT(?date_pub_old, ?date_pub_new) AS ?date_pub)
+
+# Filtering for acts passed by the European Parliament and/or the Council
+FILTER( str(?agentID)="EP" || str(?agentID)="CONSIL" )
+
+# Filtering for types of acts and excluding corrigenda
+FILTER( str(?type2)="REG" || str(?type2)="DIR" )
+FILTER NOT EXISTS { ?act cdm:resource_legal_number_corrigendum ?cornr }
+
+# Filtering for date range
+FILTER( ?date_doc >= "2015-01-01"^^xsd:date && ?date_doc < "2024-01-01"^^xsd:date).
+
+# Filtering for language
+FILTER( ?langID = "ENG" )
+}
+ORDER BY ?date_doc ?celex ?lang
